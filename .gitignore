@@ -1,0 +1,23 @@
+# 1. Секреты и настройки
+.env
+instagram_cookies.txt
+
+# 2. База данных
+bot_database.db
+*.sqlite3
+
+# 3. Виртуальное окружение
+.venv/
+venv/
+
+# 4. Временные файлы Python и системы
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# 5. Папка с загрузками
+downloads/
+
+# 6. IDE
+.idea/
+
