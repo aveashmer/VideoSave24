@@ -99,7 +99,6 @@ async def stats_command(message: types.Message):
         return
     count = await get_stats()
 
-    # Добавим в статистику инфу о размере кэша
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT COUNT(*) FROM video_cache") as cursor:
             cache_count = await cursor.fetchone()

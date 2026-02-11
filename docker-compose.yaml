@@ -1,0 +1,17 @@
+services:
+  bot:
+    build: .
+    container_name: video_bot
+    restart: always
+    env_file:
+      - .env  # Подключаем настройки и прокси
+    volumes:
+      # 1. Сохраняем базу данных (файл на хосте : файл в контейнере)
+      - ./bot_database.db:/app/bot_database.db
+      
+      # 2. Прокидываем куки (если файла нет на сервере, докер создаст папку - это ошибка, читай инструкцию ниже!)
+      - ./instagram_cookies.txt:/app/instagram_cookies.txt
+      - ./youtube_cookies.txt:/app/youtube_cookies.txt
+      
+      # 3. (Опционально) Можно вынести папку downloads, чтобы видеть, что скачивается,
+      # но лучше оставить её внутри контейнера, чтобы не захламлять сервер.

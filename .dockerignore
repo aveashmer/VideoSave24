@@ -1,0 +1,8 @@
+.git
+.venv
+__pycache__
+downloads
+.env
+*.pyc
+bot_database.db
+*_cookies.txt
