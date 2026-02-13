@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import os
-import re
+import re  # <--- Добавил этот импорт для очистки текста
 import time
 
 import aiosqlite
@@ -91,6 +91,7 @@ async def download_and_send_media(
     final_filename = None
     start_time = time.time()
 
+    # Переменная для анти-флуда (чтобы не обновлять сообщение слишком часто)
     last_update_time = 0
 
     def progress_hook(d):
@@ -101,6 +102,7 @@ async def download_and_send_media(
             if current_time - last_update_time > 3:
                 last_update_time = current_time
 
+                # Получаем "грязные" проценты
                 raw_percent = d.get("_percent_str", "").strip()
 
                 # 👇 ЧИСТИМ ANSI-КОДЫ (ЦВЕТА)
