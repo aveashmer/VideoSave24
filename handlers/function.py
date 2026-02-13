@@ -65,29 +65,21 @@ async def download_and_send_media(
         except Exception:
             pass
 
-    # 2. Настройки скачивания (ЗОЛОТАЯ СЕРЕДИНА: Качество + Совместимость)
+    # 2. Настройки скачивания (СТАБИЛЬНЫЙ РЕЖИМ)
     ydl_opts = {
-        # Приоритет:
-        # 1. H.264 видео + m4a аудио (Идеально для iPhone/Android)
-        # 2. H.264 видео + любое аудио
-        # 3. Лучшее видео + лучшее аудио (если нет H.264)
-        "format": "bestvideo[vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc]+bestaudio/bestvideo+bestaudio/best",
+        # 👇 ИЗМЕНЕНИЕ ПРИОРИТЕТОВ:
+        # 1. best[ext=mp4] -> Сначала ищем ГОТОВЫЙ MP4 файл (Инстаграм/ТикТок отдают именно его).
+        #    Он не требует склейки, поэтому звук и видео всегда работают.
+        # 2. bestvideo[vcodec^=avc]+bestaudio[ext=m4a] -> Если готового нет, собираем совместимый формат (H.264+AAC).
+        # 3. best -> Если ничего не помогло, берем лучшее качество в любом формате.
+        "format": "best[ext=mp4]/bestvideo[vcodec^=avc]+bestaudio[ext=m4a]/best",
         "merge_output_format": "mp4",
         "outtmpl": f"{DOWNLOAD_PATH}/%(id)s.%(ext)s",
         "quiet": True,
         "noplaylist": True,
         "overwrites": True,
-        # 👇 МАГИЯ FFMPEG: Чиним звук и FPS без потери качества картинки
-        "postprocessor_args": [
-            "-c:v",
-            "copy",  # Видео копируем как есть (0% потери качества, быстро)
-            "-c:a",
-            "aac",  # Звук кодируем в AAC (чтобы работал везде)
-            "-b:a",
-            "192k",  # Высокий битрейт звука
-            "-strict",
-            "experimental",
-        ],
+        # ❌ УБРАЛИ postprocessor_args.
+        # Ручная склейка ломала Инстаграм. yt-dlp сам умеет клеить правильно, если не мешать ему.
         "cookiefile": (
             "instagram_cookies.txt"
             if "instagram" in url
@@ -104,14 +96,13 @@ async def download_and_send_media(
     try:
         await safe_edit(message_with_url, "⏳ Начинаю скачивание...")
 
-        # Скачивание + Обработка ffmpeg (происходит внутри yt_dlp)
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = await asyncio.to_thread(ydl.extract_info, url, download=True)
             final_abs_path = ydl.prepare_filename(info)
             if not final_abs_path.endswith(".mp4"):
                 final_abs_path = os.path.splitext(final_abs_path)[0] + ".mp4"
 
-        # Права доступа для сервера
+        # Права доступа
         if os.path.exists(final_abs_path):
             os.chmod(final_abs_path, 0o644)
 
