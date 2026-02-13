@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import os
-import re
 import time
 
 import aiosqlite
@@ -23,7 +22,7 @@ logger = logging.getLogger(__name__)
 if not os.path.exists(DOWNLOAD_PATH):
     os.makedirs(DOWNLOAD_PATH)
 
-# Даем права 777 на саму папку
+# Даем права 777 на саму папку (чтобы сервер мог в нее заходить)
 try:
     os.chmod(DOWNLOAD_PATH, 0o777)
 except Exception:
@@ -42,20 +41,25 @@ async def safe_edit(message: Message, text: str):
 async def download_and_send_media(
     bot: Bot, chat_id: int, url: str, message_with_url: Message, username: str
 ):
+    start_time = time.time()  # ⏱ Засекаем время начала
+
     # 1. Проверка кэша
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT file_id FROM video_cache WHERE url = ?", (url,)
         ) as cursor:
             row = await cursor.fetchone()
+
     if row:
         try:
-            # Для кэша тоже делаем красивую подпись
+            # Красивая подпись для кэша
+            caption = (
+                f"👤 Заказ для: @{username}\n"
+                f"🚀 <b>Из кэша (мгновенно)</b>\n"
+                f"🔗 Источник\n{url}"
+            )
             await bot.send_video(
-                chat_id=chat_id,
-                video=row[0],
-                caption=f"👤 Заказ для: @{username}\n🚀 <b>Из кэша (мгновенно)</b>\n🔗 Источник\n{url}",
-                parse_mode="HTML",
+                chat_id=chat_id, video=row[0], caption=caption, parse_mode="HTML"
             )
             await message_with_url.delete()
             return
@@ -64,7 +68,7 @@ async def download_and_send_media(
 
     # 2. Настройки скачивания (МАКСИМАЛЬНОЕ КАЧЕСТВО)
     ydl_opts = {
-        # Снимаем лимиты по кодекам, качаем лучшее, что есть
+        # Снимаем лимиты по кодекам, качаем лучшее видео + лучшее аудио
         "format": "bestvideo+bestaudio/best",
         "merge_output_format": "mp4",
         "outtmpl": f"{DOWNLOAD_PATH}/%(id)s.%(ext)s",
@@ -83,22 +87,22 @@ async def download_and_send_media(
         ydl_opts["proxy"] = PROXY_URL
 
     final_abs_path = None
-    start_time = time.time()  # Засекаем время
 
     try:
         await safe_edit(message_with_url, "⏳ Начинаю скачивание...")
 
+        # Скачивание
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = await asyncio.to_thread(ydl.extract_info, url, download=True)
             final_abs_path = ydl.prepare_filename(info)
             if not final_abs_path.endswith(".mp4"):
                 final_abs_path = os.path.splitext(final_abs_path)[0] + ".mp4"
 
-        # Даем права на чтение файла для сервера
+        # 👇 Критически важно для локального сервера: права доступа
         if os.path.exists(final_abs_path):
             os.chmod(final_abs_path, 0o644)
 
-        # Считаем время
+        # Считаем время обработки
         elapsed = time.time() - start_time
 
         # Формируем красивую подпись
@@ -114,12 +118,13 @@ async def download_and_send_media(
                 chat_id=chat_id,
                 video=FSInputFile(final_abs_path),
                 caption=caption,
-                parse_mode="HTML",  # Чтобы ссылки были кликабельными, если нужно
+                parse_mode="HTML",
             )
         except Exception as e:
             logger.error(f"First send attempt failed: {e}")
             raise e
 
+        # Сохраняем в кэш
         if msg.video:
             async with aiosqlite.connect(DB_PATH) as db:
                 await db.execute(
@@ -134,6 +139,7 @@ async def download_and_send_media(
         logger.error(f"Error sending video: {e}")
         await safe_edit(message_with_url, f"❌ Ошибка: {str(e)[:50]}...")
     finally:
+        # Удаляем файл после отправки
         if final_abs_path and os.path.exists(final_abs_path):
             try:
                 os.remove(final_abs_path)
