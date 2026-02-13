@@ -6,6 +6,9 @@ from datetime import datetime
 
 import aiosqlite
 from aiogram import Bot, Dispatcher, types
+
+# 👇 Добавили этот импорт для настроек
+from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
 from aiogram.filters import Command, CommandStart
@@ -81,12 +84,20 @@ async def main():
     )
     await init_db()
 
-    # 👇 НАСТРОЙКА ЛОКАЛЬНОГО СЕРВЕРА
+    # Настройка сессии для локального сервера
     session = AiohttpSession(
         api=TelegramAPIServer.from_base("http://telegram-bot-api:8081")
     )
 
-    bot = Bot(token=BOT_TOKEN, session=session, parse_mode="HTML")
+    # 👇 ИСПРАВЛЕННАЯ ИНИЦИАЛИЗАЦИЯ
+    bot = Bot(
+        token=BOT_TOKEN,
+        session=session,
+        default=DefaultBotProperties(
+            parse_mode="HTML"
+        ),  # Теперь настройки передаются так
+    )
+
     dp = Dispatcher()
 
     dp.message.register(start_handler, CommandStart())
