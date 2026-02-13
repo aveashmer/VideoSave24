@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 if not os.path.exists(DOWNLOAD_PATH):
     os.makedirs(DOWNLOAD_PATH)
 
-# Даем права 777 на саму папку (чтобы сервер мог в нее заходить)
+# Даем права 777 на саму папку
 try:
     os.chmod(DOWNLOAD_PATH, 0o777)
 except Exception:
@@ -52,7 +52,6 @@ async def download_and_send_media(
 
     if row:
         try:
-            # Красивая подпись для кэша
             caption = (
                 f"👤 Заказ для: @{username}\n"
                 f"🚀 <b>Из кэша (мгновенно)</b>\n"
@@ -66,15 +65,29 @@ async def download_and_send_media(
         except Exception:
             pass
 
-    # 2. Настройки скачивания (МАКСИМАЛЬНОЕ КАЧЕСТВО)
+    # 2. Настройки скачивания (ЗОЛОТАЯ СЕРЕДИНА: Качество + Совместимость)
     ydl_opts = {
-        # Снимаем лимиты по кодекам, качаем лучшее видео + лучшее аудио
-        "format": "bestvideo+bestaudio/best",
+        # Приоритет:
+        # 1. H.264 видео + m4a аудио (Идеально для iPhone/Android)
+        # 2. H.264 видео + любое аудио
+        # 3. Лучшее видео + лучшее аудио (если нет H.264)
+        "format": "bestvideo[vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc]+bestaudio/bestvideo+bestaudio/best",
         "merge_output_format": "mp4",
         "outtmpl": f"{DOWNLOAD_PATH}/%(id)s.%(ext)s",
         "quiet": True,
         "noplaylist": True,
         "overwrites": True,
+        # 👇 МАГИЯ FFMPEG: Чиним звук и FPS без потери качества картинки
+        "postprocessor_args": [
+            "-c:v",
+            "copy",  # Видео копируем как есть (0% потери качества, быстро)
+            "-c:a",
+            "aac",  # Звук кодируем в AAC (чтобы работал везде)
+            "-b:a",
+            "192k",  # Высокий битрейт звука
+            "-strict",
+            "experimental",
+        ],
         "cookiefile": (
             "instagram_cookies.txt"
             if "instagram" in url
@@ -91,21 +104,20 @@ async def download_and_send_media(
     try:
         await safe_edit(message_with_url, "⏳ Начинаю скачивание...")
 
-        # Скачивание
+        # Скачивание + Обработка ffmpeg (происходит внутри yt_dlp)
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = await asyncio.to_thread(ydl.extract_info, url, download=True)
             final_abs_path = ydl.prepare_filename(info)
             if not final_abs_path.endswith(".mp4"):
                 final_abs_path = os.path.splitext(final_abs_path)[0] + ".mp4"
 
-        # 👇 Критически важно для локального сервера: права доступа
+        # Права доступа для сервера
         if os.path.exists(final_abs_path):
             os.chmod(final_abs_path, 0o644)
 
-        # Считаем время обработки
+        # Считаем время
         elapsed = time.time() - start_time
 
-        # Формируем красивую подпись
         caption = (
             f"👤 Заказ для: @{username}\n"
             f"⏱ Обработка заняла: {elapsed:.1f} сек\n"
@@ -124,7 +136,7 @@ async def download_and_send_media(
             logger.error(f"First send attempt failed: {e}")
             raise e
 
-        # Сохраняем в кэш
+        # Кэшируем
         if msg.video:
             async with aiosqlite.connect(DB_PATH) as db:
                 await db.execute(
@@ -139,7 +151,6 @@ async def download_and_send_media(
         logger.error(f"Error sending video: {e}")
         await safe_edit(message_with_url, f"❌ Ошибка: {str(e)[:50]}...")
     finally:
-        # Удаляем файл после отправки
         if final_abs_path and os.path.exists(final_abs_path):
             try:
                 os.remove(final_abs_path)
