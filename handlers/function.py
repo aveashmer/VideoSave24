@@ -12,17 +12,15 @@ from dotenv import load_dotenv
 load_dotenv()
 PROXY_URL = os.getenv("PROXY_URL")
 
-# Папка для обмена файлами
+# Путь к общей папке с сервером Telegram
 DOWNLOAD_PATH = "/var/lib/telegram-bot-api"
 DB_PATH = "bot_database.db"
 
 logger = logging.getLogger(__name__)
 
-# Гарантируем, что папка существует
+# Гарантируем права доступа к папке при запуске
 if not os.path.exists(DOWNLOAD_PATH):
     os.makedirs(DOWNLOAD_PATH)
-
-# Даем права 777 на саму папку
 try:
     os.chmod(DOWNLOAD_PATH, 0o777)
 except Exception:
@@ -41,9 +39,9 @@ async def safe_edit(message: Message, text: str):
 async def download_and_send_media(
     bot: Bot, chat_id: int, url: str, message_with_url: Message, username: str
 ):
-    start_time = time.time()  # ⏱ Засекаем время начала
+    start_time = time.time()
 
-    # 1. Проверка кэша
+    # 1. Проверка кэша БД
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT file_id FROM video_cache WHERE url = ?", (url,)
@@ -52,11 +50,7 @@ async def download_and_send_media(
 
     if row:
         try:
-            caption = (
-                f"👤 Заказ для: @{username}\n"
-                f"🚀 <b>Из кэша (мгновенно)</b>\n"
-                f"🔗 Источник\n{url}"
-            )
+            caption = f"👤 Заказ для: @{username}\n🚀 <b>Из кэша (мгновенно)</b>\n🔗 Источник\n{url}"
             await bot.send_video(
                 chat_id=chat_id, video=row[0], caption=caption, parse_mode="HTML"
             )
@@ -65,21 +59,27 @@ async def download_and_send_media(
         except Exception:
             pass
 
-    # 2. Настройки скачивания (СТАБИЛЬНЫЙ РЕЖИМ)
+    # 2. Настройки скачивания
     ydl_opts = {
-        # 👇 ИЗМЕНЕНИЕ ПРИОРИТЕТОВ:
-        # 1. best[ext=mp4] -> Сначала ищем ГОТОВЫЙ MP4 файл (Инстаграм/ТикТок отдают именно его).
-        #    Он не требует склейки, поэтому звук и видео всегда работают.
-        # 2. bestvideo[vcodec^=avc]+bestaudio[ext=m4a] -> Если готового нет, собираем совместимый формат (H.264+AAC).
-        # 3. best -> Если ничего не помогло, берем лучшее качество в любом формате.
-        "format": "best[ext=mp4]/bestvideo[vcodec^=avc]+bestaudio[ext=m4a]/best",
+        "format": "bestvideo[vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "merge_output_format": "mp4",
         "outtmpl": f"{DOWNLOAD_PATH}/%(id)s.%(ext)s",
         "quiet": True,
         "noplaylist": True,
         "overwrites": True,
-        # ❌ УБРАЛИ postprocessor_args.
-        # Ручная склейка ломала Инстаграм. yt-dlp сам умеет клеить правильно, если не мешать ему.
+        # Исправляем звук и структуру файла для Telegram
+        "postprocessor_args": [
+            "-c:v",
+            "copy",  # Видео не трогаем (качество 100%)
+            "-c:a",
+            "aac",  # Звук в AAC (решает проблему тишины на длинных видео)
+            "-b:a",
+            "192k",  # Качественный битрейт звука
+            "-map_metadata",
+            "0",  # Переносим теги
+            "-movflags",
+            "faststart",  # Инстаграм-фикс: переносим заголовок в начало
+        ],
         "cookiefile": (
             "instagram_cookies.txt"
             if "instagram" in url
@@ -88,11 +88,11 @@ async def download_and_send_media(
             )
         ),
     }
+
     if PROXY_URL:
         ydl_opts["proxy"] = PROXY_URL
 
     final_abs_path = None
-
     try:
         await safe_edit(message_with_url, "⏳ Начинаю скачивание...")
 
@@ -102,32 +102,21 @@ async def download_and_send_media(
             if not final_abs_path.endswith(".mp4"):
                 final_abs_path = os.path.splitext(final_abs_path)[0] + ".mp4"
 
-        # Права доступа
+        # Права для локального сервера
         if os.path.exists(final_abs_path):
             os.chmod(final_abs_path, 0o644)
 
-        # Считаем время
         elapsed = time.time() - start_time
+        caption = f"👤 Заказ для: @{username}\n⏱ Обработка заняла: {elapsed:.1f} сек\n🔗 Источник\n{url}"
 
-        caption = (
-            f"👤 Заказ для: @{username}\n"
-            f"⏱ Обработка заняла: {elapsed:.1f} сек\n"
-            f"🔗 Источник\n{url}"
+        # Отправка через локальный сервер
+        msg = await bot.send_video(
+            chat_id=chat_id,
+            video=FSInputFile(final_abs_path),
+            caption=caption,
+            parse_mode="HTML",
         )
 
-        # ОТПРАВКА
-        try:
-            msg = await bot.send_video(
-                chat_id=chat_id,
-                video=FSInputFile(final_abs_path),
-                caption=caption,
-                parse_mode="HTML",
-            )
-        except Exception as e:
-            logger.error(f"First send attempt failed: {e}")
-            raise e
-
-        # Кэшируем
         if msg.video:
             async with aiosqlite.connect(DB_PATH) as db:
                 await db.execute(
@@ -139,7 +128,7 @@ async def download_and_send_media(
         await message_with_url.delete()
 
     except Exception as e:
-        logger.error(f"Error sending video: {e}")
+        logger.error(f"Error: {e}")
         await safe_edit(message_with_url, f"❌ Ошибка: {str(e)[:50]}...")
     finally:
         if final_abs_path and os.path.exists(final_abs_path):
