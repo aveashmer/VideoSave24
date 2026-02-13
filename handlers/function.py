@@ -77,8 +77,11 @@ async def download_and_send_media(
             if not final_abs_path.endswith(".mp4"):
                 final_abs_path = os.path.splitext(final_abs_path)[0] + ".mp4"
 
+        # 👇 ИСПРАВЛЕНИЕ: Меняем права доступа, чтобы сервер мог прочитать файл
+        if os.path.exists(final_abs_path):
+            os.chmod(final_abs_path, 0o644)  # Чтение разрешено всем
+
         # ОТПРАВКА
-        # Передаем строку с путем. Сервер с флагом --local её поймет.
         msg = await bot.send_video(
             chat_id=chat_id, video=final_abs_path, caption=f"👤 @{username}\n🔗 {url}"
         )
@@ -98,4 +101,7 @@ async def download_and_send_media(
         await safe_edit(message_with_url, f"❌ Ошибка: {str(e)[:50]}...")
     finally:
         if final_abs_path and os.path.exists(final_abs_path):
-            os.remove(final_abs_path)
+            try:
+                os.remove(final_abs_path)
+            except Exception:
+                pass
