@@ -1,17 +1,33 @@
 services:
+  telegram-bot-api:
+    image: aiogram/telegram-bot-api:latest
+    container_name: telegram_api_server
+    restart: always
+    environment:
+      # Докер сам возьмет эти значения из .env файла
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
+      TELEGRAM_LOCAL: "true"
+      TELEGRAM_STAT: "true"
+    volumes:
+      - telegram_data:/var/lib/telegram-bot-api
+    # Порты можно оставить, они не секретны
+    ports:
+      - "8081:8081"
+
   bot:
     build: .
     container_name: video_bot
     restart: always
     env_file:
-      - .env  # Подключаем настройки и прокси
+      - .env
     volumes:
-      # 1. Сохраняем базу данных (файл на хосте : файл в контейнере)
       - ./bot_database.db:/app/bot_database.db
-      
-      # 2. Прокидываем куки (если файла нет на сервере, докер создаст папку - это ошибка, читай инструкцию ниже!)
       - ./instagram_cookies.txt:/app/instagram_cookies.txt
       - ./youtube_cookies.txt:/app/youtube_cookies.txt
-      
-      # 3. (Опционально) Можно вынести папку downloads, чтобы видеть, что скачивается,
-      # но лучше оставить её внутри контейнера, чтобы не захламлять сервер.
+      - telegram_data:/var/lib/telegram-bot-api
+    depends_on:
+      - telegram-bot-api
+
+volumes:
+  telegram_data:
