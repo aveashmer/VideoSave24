@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import os
-import re  # <--- Добавил этот импорт для очистки текста
+import re
 import time
 
 import aiosqlite
