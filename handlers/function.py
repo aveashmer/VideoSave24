@@ -101,7 +101,6 @@ async def download_and_send_media(
             if current_time - last_update_time > 3:
                 last_update_time = current_time
 
-                # Получаем "грязные" проценты
                 raw_percent = d.get("_percent_str", "").strip()
 
                 # 👇 ЧИСТИМ ANSI-КОДЫ (ЦВЕТА)
