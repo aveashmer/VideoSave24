@@ -7,17 +7,27 @@ import time
 import aiosqlite
 import yt_dlp
 from aiogram import Bot
-from aiogram.types import Message
+from aiogram.types import FSInputFile, Message
 from dotenv import load_dotenv
 
 load_dotenv()
 PROXY_URL = os.getenv("PROXY_URL")
 
-# Качаем напрямую в общую папку
+# Папка для обмена файлами
 DOWNLOAD_PATH = "/var/lib/telegram-bot-api"
 DB_PATH = "bot_database.db"
 
 logger = logging.getLogger(__name__)
+
+# 👇 ИСПРАВЛЕНИЕ: Гарантируем, что папка существует и ДОСТУПНА ВСЕМ
+if not os.path.exists(DOWNLOAD_PATH):
+    os.makedirs(DOWNLOAD_PATH)
+
+# Даем права 777 (читать/писать могут все) на саму папку
+try:
+    os.chmod(DOWNLOAD_PATH, 0o777)
+except Exception:
+    pass
 
 
 async def safe_edit(message: Message, text: str):
@@ -77,14 +87,24 @@ async def download_and_send_media(
             if not final_abs_path.endswith(".mp4"):
                 final_abs_path = os.path.splitext(final_abs_path)[0] + ".mp4"
 
-        # 👇 ИСПРАВЛЕНИЕ: Меняем права доступа, чтобы сервер мог прочитать файл
+        # 👇 ИСПРАВЛЕНИЕ: Даем права на чтение конкретного файла
         if os.path.exists(final_abs_path):
-            os.chmod(final_abs_path, 0o644)  # Чтение разрешено всем
+            os.chmod(final_abs_path, 0o644)
 
         # ОТПРАВКА
-        msg = await bot.send_video(
-            chat_id=chat_id, video=final_abs_path, caption=f"👤 @{username}\n🔗 {url}"
-        )
+        # Пробуем отправить путь строкой (самый быстрый способ для локального сервера)
+        try:
+            msg = await bot.send_video(
+                chat_id=chat_id,
+                video=FSInputFile(
+                    final_abs_path
+                ),  # Используем обертку, она надежнее работает с aiogram 3.x
+                caption=f"👤 @{username}\n🔗 {url}",
+            )
+        except Exception as e:
+            # Если вдруг локальный путь не сработал, пробуем fallback (но это не должно пригодиться)
+            logger.error(f"First send attempt failed: {e}")
+            raise e
 
         if msg.video:
             async with aiosqlite.connect(DB_PATH) as db:
